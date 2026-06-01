@@ -6,6 +6,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const authRoutes = require('./routes/auth');
 const boardRoutes = require('./routes/board');
 const columnRoutes = require('./routes/column');
+const taskRoutes = require('./routes/task');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/boards', boardRoutes);
 app.use('/api/boards/:boardId/columns', columnRoutes);
+app.use('/api/boards/:boardId/columns/:columnId/tasks', taskRoutes);
 
 // Health check
 app.get('/', (req, res) => {
