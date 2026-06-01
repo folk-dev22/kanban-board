@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import Boards from './pages/Boards';
+import BoardDetail from './pages/BoardDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 
@@ -17,6 +18,14 @@ function App() {
             element={
               <PrivateRoute>
                 <Boards />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/boards/:id"
+            element={
+              <PrivateRoute>
+                <BoardDetail />
               </PrivateRoute>
             }
           />
