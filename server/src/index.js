@@ -4,6 +4,7 @@ const cors = require('cors');
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
 const authRoutes = require('./routes/auth');
+const boardRoutes = require('./routes/board');
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/boards', boardRoutes);
 
 // Health check
 app.get('/', (req, res) => {
