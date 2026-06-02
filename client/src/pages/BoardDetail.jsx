@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { getBoard } from '../services/boardService';
 import { getColumns, createColumn, updateColumn, deleteColumn } from '../services/boardService';
-import { getTasks, createTask, updateTask, deleteTask } from '../services/boardService';
+import { getTasks, createTask, updateTask, deleteTask, moveTask } from '../services/boardService';
 import TaskCard from '../components/TaskCard';
 
 const BoardDetail = () => {
@@ -32,7 +33,6 @@ const BoardDetail = () => {
       setBoard(boardRes.data);
       setColumns(columnsRes.data);
 
-      // โหลด Tasks ของทุก Column
       const tasksData = {};
       await Promise.all(
         columnsRes.data.map(async (col) => {
@@ -45,6 +45,37 @@ const BoardDetail = () => {
       console.error(error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDragEnd = async (result) => {
+    const { source, destination, draggableId } = result;
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    const sourceCol = source.droppableId;
+    const destCol = destination.droppableId;
+    const sourceTasks = [...(tasks[sourceCol] || [])];
+    const destTasks = sourceCol === destCol ? sourceTasks : [...(tasks[destCol] || [])];
+
+    const [movedTask] = sourceTasks.splice(source.index, 1);
+
+    if (sourceCol === destCol) {
+      sourceTasks.splice(destination.index, 0, movedTask);
+      setTasks({ ...tasks, [sourceCol]: sourceTasks });
+    } else {
+      destTasks.splice(destination.index, 0, movedTask);
+      setTasks({ ...tasks, [sourceCol]: sourceTasks, [destCol]: destTasks });
+    }
+
+    try {
+      await moveTask(id, sourceCol, draggableId, {
+        columnId: destCol,
+        order: destination.index
+      });
+    } catch (error) {
+      console.error(error);
+      fetchData();
     }
   };
 
@@ -89,10 +120,7 @@ const BoardDetail = () => {
     if (!newTaskTitle.trim()) return;
     try {
       const res = await createTask(id, columnId, { title: newTaskTitle });
-      setTasks({
-        ...tasks,
-        [columnId]: [...(tasks[columnId] || []), res.data]
-      });
+      setTasks({ ...tasks, [columnId]: [...(tasks[columnId] || []), res.data] });
       setNewTaskTitle('');
       setAddingTaskColumn(null);
     } catch (error) {
@@ -104,10 +132,7 @@ const BoardDetail = () => {
     if (!window.confirm('ต้องการลบ Task นี้ไหม?')) return;
     try {
       await deleteTask(id, columnId, taskId);
-      setTasks({
-        ...tasks,
-        [columnId]: tasks[columnId].filter(t => t._id !== taskId)
-      });
+      setTasks({ ...tasks, [columnId]: tasks[columnId].filter(t => t._id !== taskId) });
     } catch (error) {
       console.error(error);
     }
@@ -116,10 +141,7 @@ const BoardDetail = () => {
   const handleUpdateTask = async (columnId, taskId, data) => {
     try {
       const res = await updateTask(id, columnId, taskId, data);
-      setTasks({
-        ...tasks,
-        [columnId]: tasks[columnId].map(t => t._id === taskId ? res.data : t)
-      });
+      setTasks({ ...tasks, [columnId]: tasks[columnId].map(t => t._id === taskId ? res.data : t) });
       setEditingTask(null);
     } catch (error) {
       console.error(error);
@@ -127,9 +149,7 @@ const BoardDetail = () => {
   };
 
   if (loading) return (
-    <div className="flex items-center justify-center h-screen">
-      กำลังโหลด...
-    </div>
+    <div className="flex items-center justify-center h-screen">กำลังโหลด...</div>
   );
 
   return (
@@ -147,77 +167,141 @@ const BoardDetail = () => {
         </div>
       </nav>
 
-      {/* Columns */}
-      <div className="flex gap-4 p-6 overflow-x-auto min-h-[calc(100vh-64px)]">
-        {columns.map(column => (
-          <div key={column._id} className="bg-gray-100 rounded-lg p-3 w-72 flex-shrink-0 h-fit">
-            {/* Column Header */}
-            <div className="flex justify-between items-center mb-3">
-              {editingColumn === column._id ? (
-                <input
-                  type="text"
-                  defaultValue={column.title}
-                  autoFocus
-                  onBlur={(e) => handleUpdateColumn(column._id, e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleUpdateColumn(column._id, e.target.value);
-                    if (e.key === 'Escape') setEditingColumn(null);
-                  }}
-                  className="font-bold bg-white border rounded px-2 py-1 w-full"
-                />
-              ) : (
-                <h3
-                  className="font-bold cursor-pointer hover:bg-gray-200 px-2 py-1 rounded"
-                  onClick={() => setEditingColumn(column._id)}
+      {/* Drag & Drop Context */}
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <div className="flex gap-4 p-6 overflow-x-auto min-h-[calc(100vh-64px)]">
+          {columns.map(column => (
+            <div key={column._id} className="bg-gray-100 rounded-lg p-3 w-72 flex-shrink-0 h-fit">
+              {/* Column Header */}
+              <div className="flex justify-between items-center mb-3">
+                {editingColumn === column._id ? (
+                  <input
+                    type="text"
+                    defaultValue={column.title}
+                    autoFocus
+                    onBlur={(e) => handleUpdateColumn(column._id, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleUpdateColumn(column._id, e.target.value);
+                      if (e.key === 'Escape') setEditingColumn(null);
+                    }}
+                    className="font-bold bg-white border rounded px-2 py-1 w-full"
+                  />
+                ) : (
+                  <h3
+                    className="font-bold cursor-pointer hover:bg-gray-200 px-2 py-1 rounded"
+                    onClick={() => setEditingColumn(column._id)}
+                  >
+                    {column.title}
+                  </h3>
+                )}
+                <button
+                  onClick={() => handleDeleteColumn(column._id)}
+                  className="text-gray-400 hover:text-red-500 ml-2"
                 >
-                  {column.title}
-                </h3>
+                  ✕
+                </button>
+              </div>
+
+              {/* Droppable Tasks */}
+              <Droppable droppableId={column._id}>
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className={`space-y-2 mb-2 min-h-16 rounded-lg transition-colors ${
+                      snapshot.isDraggingOver ? 'bg-blue-50' : ''
+                    }`}
+                  >
+                    {(tasks[column._id] || []).map((task, index) => (
+                      <Draggable key={task._id} draggableId={task._id} index={index}>
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className={snapshot.isDragging ? 'opacity-80 rotate-1' : ''}
+                          >
+                            <TaskCard
+                              task={task}
+                              onDelete={(taskId) => handleDeleteTask(column._id, taskId)}
+                              onEdit={(task) => setEditingTask({ ...task, columnId: column._id })}
+                            />
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+
+              {/* Add Task */}
+              {addingTaskColumn === column._id ? (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    placeholder="ชื่อ Task..."
+                    autoFocus
+                    className="w-full border rounded px-3 py-2 mb-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleCreateTask(column._id);
+                      if (e.key === 'Escape') { setAddingTaskColumn(null); setNewTaskTitle(''); }
+                    }}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleCreateTask(column._id)}
+                      className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                    >
+                      เพิ่ม
+                    </button>
+                    <button
+                      onClick={() => { setAddingTaskColumn(null); setNewTaskTitle(''); }}
+                      className="text-gray-600 px-3 py-1 rounded text-sm hover:bg-gray-200"
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingTaskColumn(column._id)}
+                  className="w-full text-left text-gray-500 hover:bg-gray-200 px-2 py-1 rounded text-sm mt-1"
+                >
+                  + เพิ่ม Task
+                </button>
               )}
-              <button
-                onClick={() => handleDeleteColumn(column._id)}
-                className="text-gray-400 hover:text-red-500 ml-2"
-              >
-                ✕
-              </button>
             </div>
+          ))}
 
-            {/* Tasks */}
-            <div className="space-y-2 mb-2">
-              {(tasks[column._id] || []).map(task => (
-                <TaskCard
-                  key={task._id}
-                  task={task}
-                  onDelete={(taskId) => handleDeleteTask(column._id, taskId)}
-                  onEdit={(task) => setEditingTask({ ...task, columnId: column._id })}
-                />
-              ))}
-            </div>
-
-            {/* Add Task */}
-            {addingTaskColumn === column._id ? (
-              <div className="mt-2">
+          {/* Add Column */}
+          <div className="w-72 flex-shrink-0">
+            {showAddColumn ? (
+              <div className="bg-gray-100 rounded-lg p-3">
                 <input
                   type="text"
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  placeholder="ชื่อ Task..."
+                  value={newColumnTitle}
+                  onChange={(e) => setNewColumnTitle(e.target.value)}
+                  placeholder="ชื่อ Column..."
                   autoFocus
-                  className="w-full border rounded px-3 py-2 mb-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border rounded px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleCreateTask(column._id);
-                    if (e.key === 'Escape') { setAddingTaskColumn(null); setNewTaskTitle(''); }
+                    if (e.key === 'Enter') handleCreateColumn(e);
+                    if (e.key === 'Escape') { setShowAddColumn(false); setNewColumnTitle(''); }
                   }}
                 />
                 <div className="flex gap-2">
                   <button
-                    onClick={() => handleCreateTask(column._id)}
-                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                    onClick={handleCreateColumn}
+                    className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
                   >
                     เพิ่ม
                   </button>
                   <button
-                    onClick={() => { setAddingTaskColumn(null); setNewTaskTitle(''); }}
-                    className="text-gray-600 px-3 py-1 rounded text-sm hover:bg-gray-200"
+                    onClick={() => { setShowAddColumn(false); setNewColumnTitle(''); }}
+                    className="text-gray-600 px-3 py-1 rounded hover:bg-gray-200"
                   >
                     ยกเลิก
                   </button>
@@ -225,56 +309,15 @@ const BoardDetail = () => {
               </div>
             ) : (
               <button
-                onClick={() => setAddingTaskColumn(column._id)}
-                className="w-full text-left text-gray-500 hover:bg-gray-200 px-2 py-1 rounded text-sm mt-1"
+                onClick={() => setShowAddColumn(true)}
+                className="w-full bg-white bg-opacity-20 text-white rounded-lg p-3 hover:bg-opacity-30 text-left"
               >
-                + เพิ่ม Task
+                + เพิ่ม Column
               </button>
             )}
           </div>
-        ))}
-
-        {/* Add Column */}
-        <div className="w-72 flex-shrink-0">
-          {showAddColumn ? (
-            <div className="bg-gray-100 rounded-lg p-3">
-              <input
-                type="text"
-                value={newColumnTitle}
-                onChange={(e) => setNewColumnTitle(e.target.value)}
-                placeholder="ชื่อ Column..."
-                autoFocus
-                className="w-full border rounded px-3 py-2 mb-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateColumn(e);
-                  if (e.key === 'Escape') { setShowAddColumn(false); setNewColumnTitle(''); }
-                }}
-              />
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCreateColumn}
-                  className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-                >
-                  เพิ่ม
-                </button>
-                <button
-                  onClick={() => { setShowAddColumn(false); setNewColumnTitle(''); }}
-                  className="text-gray-600 px-3 py-1 rounded hover:bg-gray-200"
-                >
-                  ยกเลิก
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              onClick={() => setShowAddColumn(true)}
-              className="w-full bg-white bg-opacity-20 text-white rounded-lg p-3 hover:bg-opacity-30 text-left"
-            >
-              + เพิ่ม Column
-            </button>
-          )}
         </div>
-      </div>
+      </DragDropContext>
 
       {/* Modal แก้ไข Task */}
       {editingTask && (
